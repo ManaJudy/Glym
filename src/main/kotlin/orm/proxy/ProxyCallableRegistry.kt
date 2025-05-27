@@ -10,4 +10,5 @@ object ProxyCallableRegistry {
     }
 
     fun get(id: String): Callable<Any>? = callables[id]
+
 }

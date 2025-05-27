@@ -11,3 +11,4 @@ annotation class Relation(
     val joinColumn: String,
     val type: RelationType
 )
+

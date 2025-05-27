@@ -2,6 +2,7 @@ package com.mana.glym.orm.repository
 
 import com.mana.glym.orm.EntityManager
 
+
 interface Repository<I : Number, E> {
     val entityManger: EntityManager
     val c: Class<E>

@@ -5,3 +5,4 @@ package com.mana.glym.annotation
 annotation class Table(
     val name: String = "",
 )
+

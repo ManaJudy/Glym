@@ -1,7 +1,7 @@
 package com.mana.glym.orm.proxy
 
-import java.io.File
 import java.lang.reflect.Modifier
+import java.io.File
 import java.net.URLClassLoader
 import java.util.*
 import java.util.concurrent.Callable

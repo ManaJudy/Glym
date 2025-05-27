@@ -13,4 +13,5 @@ class RepositoryImpl<I : Number, E>(
     override fun save(entity: E): E? = entityManger.save(c, entity)
     override fun update(entity: E): E? = entityManger.update(c, entity)
     override fun delete(entity: E) = entityManger.delete(c, entity)
+
 }

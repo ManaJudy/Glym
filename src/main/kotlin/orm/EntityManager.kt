@@ -8,8 +8,8 @@ import com.mana.glym.orm.proxy.ProxyFactory
 import java.lang.reflect.Field
 import java.sql.Connection
 import java.sql.DriverManager
-import java.sql.ResultSet
 import java.sql.SQLException
+import java.sql.ResultSet
 
 @Suppress("unused", "unchecked_cast", "SqlNoDataSourceInspection", "SqlSourceToSinkFlow")
 class EntityManager {

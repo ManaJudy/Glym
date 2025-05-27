@@ -1,7 +1,7 @@
 package com.mana.glym.orm.repository
 
-import com.mana.glym.orm.EntityManager
 import java.lang.reflect.Proxy
+import com.mana.glym.orm.EntityManager
 
 @Suppress("unchecked_cast")
 object RepositoryFactory {
