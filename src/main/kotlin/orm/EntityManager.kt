@@ -13,7 +13,7 @@ import java.sql.ResultSet
 @Suppress("unused", "unchecked_cast", "SqlNoDataSourceInspection", "SqlSourceToSinkFlow")
 class EntityManager(val dataSource: DataSource) {
 
-    private fun <T> useConnection(block: (Connection) -> T): T {
+    fun <T> useConnection(block: (Connection) -> T): T {
         val connection = dataSource.getConnection()
         try {
             return block(connection)
@@ -154,7 +154,7 @@ class EntityManager(val dataSource: DataSource) {
         }
     }
 
-    fun<E> delete(c: Class<E>, entity: E) = useConnection { connection ->
+    fun<E> delete(c: Class<E>, entity: E): Unit = useConnection { connection ->
         val primaryKey = primaryKeyOf(c)
         val sql = "delete from ${tableOf(c)} where ${primaryKey!!.name} = ?"
         try {
