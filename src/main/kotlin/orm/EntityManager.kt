@@ -7,27 +7,19 @@ import com.mana.glym.annotation.Table
 import com.mana.glym.orm.proxy.ProxyFactory
 import java.lang.reflect.Field
 import java.sql.Connection
-import java.sql.DriverManager
 import java.sql.SQLException
 import java.sql.ResultSet
 
 @Suppress("unused", "unchecked_cast", "SqlNoDataSourceInspection", "SqlSourceToSinkFlow")
-class EntityManager {
-    val url: String
-    val username: String
-    val password: String
-    var connection: Connection?
+class EntityManager(val dataSource: DataSource) {
 
-
-    constructor(url: String, username: String, password: String) {
-        this.url = url
-        this.username = username
-        this.password = password
-        this.connection = null
-    }
-
-    fun connect() {
-        connection = DriverManager.getConnection(url, username, password)
+    private fun <T> useConnection(block: (Connection) -> T): T {
+        val connection = dataSource.getConnection()
+        try {
+            return block(connection)
+        } finally {
+            dataSource.releaseConnection(connection)
+        }
     }
 
     fun<E> map(rs: ResultSet, c: Class<E>): E {
@@ -36,11 +28,14 @@ class EntityManager {
             field.setAccessible(true)
             if (field.isAnnotationPresent(Relation::class.java)) {
                 val annotation = field.getAnnotation(Relation::class.java)
+                val columnValue = rs.getObject(annotation.column)
                 val proxy = when (annotation.type) {
-                    RelationType.OneToOne -> ProxyFactory.createLazyProxy(field.type) {
-                        findOneBy(field.type, mapOf(annotation.joinColumn to rs.getObject(annotation.column)))
+                    RelationType.OneToOne, RelationType.ManyToOne -> ProxyFactory.createProxy(field.type) {
+                        findOneBy(field.type, mapOf(annotation.joinColumn to columnValue))
                     }
-                    else -> null
+                    RelationType.OneToMany, RelationType.ManyToMany -> ProxyFactory.createProxyList {
+                        findBy(field.type, mapOf(annotation.joinColumn to columnValue))
+                    }
                 }
                 field.set(entity, field.type.cast(proxy))
             }
@@ -63,67 +58,67 @@ class EntityManager {
         return c.declaredFields.filter { !it.isAnnotationPresent(Id::class.java) }
     }
 
-    fun<E> findAll(c: Class<E>): List<E> {
+    fun<E> findAll(c: Class<E>): List<E> = useConnection { connection ->
         val entities = mutableListOf<E>()
         val sql = "select * from ${tableOf(c)}"
         try {
-            connection!!.prepareStatement(sql).use { stmt -> stmt.executeQuery().use { rs -> while (rs.next()) entities.add(map(rs, c))}}
-            return entities
+            connection.prepareStatement(sql).use { stmt -> stmt.executeQuery().use { rs -> while (rs.next()) entities.add(map(rs, c))}}
+            return@useConnection entities
         } catch (e: SQLException) {
             throw RuntimeException("Error SQL", e)
         }
     }
 
-    fun<I : Number, E> findOneById(c: Class<E>, id: I): E? {
-        val sql = "select * from ${tableOf(c)} where ${primaryKeyOf(c)!!.name} = ?"
+    fun<I : Number, E> findOneById(c: Class<E>, id: I): E? = useConnection { connection ->
+    val sql = "select * from ${tableOf(c)} where ${primaryKeyOf(c)!!.name} = ?"
         try {
-            connection!!.prepareStatement(sql).use { stmt ->
+            connection.prepareStatement(sql).use { stmt ->
                 stmt.setObject(1, id)
-                stmt.executeQuery().use { rs -> return if (rs.next()) map(rs, c) else null }
+                stmt.executeQuery().use { rs -> return@useConnection if (rs.next()) map(rs, c) else null }
             }
         } catch (e: SQLException) {
             throw RuntimeException("Error SQL", e)
         }
     }
 
-    fun<E> findLast(c: Class<E>): E? {
+    fun<E> findLast(c: Class<E>): E? = useConnection { connection ->
         val sql = "select * from ${tableOf(c)} order by ${primaryKeyOf(c)!!.name} desc limit 1"
         try {
-            connection!!.prepareStatement(sql).use { stmt -> stmt.executeQuery().use { rs -> return if (rs.next()) map(rs, c) else null }}
+            connection.prepareStatement(sql).use { stmt -> stmt.executeQuery().use { rs -> return@useConnection if (rs.next()) map(rs, c) else null }}
         } catch (e: SQLException) {
             throw RuntimeException("Error SQL", e)
         }
     }
 
-    fun<E> findOneBy(c: Class<E>, filters: Map<String, Any?>): E? {
+    fun<E> findOneBy(c: Class<E>, filters: Map<String, Any?>): E? = useConnection { connection ->
         val conditions = filters.keys.joinToString(" and ") { "$it = ?" }
         val sql = "select * from ${tableOf(c)} where $conditions limit 1"
         try {
-            connection!!.prepareStatement(sql).use { stmt ->
+            connection.prepareStatement(sql).use { stmt ->
                 filters.values.forEachIndexed { i, value -> stmt.setObject(i + 1, value) }
-                stmt.executeQuery().use { rs -> return if (rs.next()) map(rs, c) else null }
+                stmt.executeQuery().use { rs -> return@useConnection if (rs.next()) map(rs, c) else null }
             }
         } catch (e: SQLException) {
             throw RuntimeException("Error SQL", e)
         }
     }
 
-    fun <E> findBy(c: Class<E>, filters: Map<String, Any?>): List<E> {
+    fun <E> findBy(c: Class<E>, filters: Map<String, Any?>): List<E> = useConnection { connection ->
         val entities = mutableListOf<E>()
         val conditions = filters.keys.joinToString(" and ") { "$it = ?" }
         val sql = "select * from ${tableOf(c)} where $conditions"
         try {
-            connection!!.prepareStatement(sql).use { stmt ->
+            connection.prepareStatement(sql).use { stmt ->
                 filters.values.forEachIndexed { i, value -> stmt.setObject(i + 1, value) }
                 stmt.executeQuery().use { rs -> while (rs.next()) entities.add(map(rs, c)) }
             }
-            return entities
+            return@useConnection entities
         } catch (e: SQLException) {
             throw RuntimeException("Error SQL", e)
         }
     }
 
-    fun<E> save(c: Class<E>, entity: E): E? {
+    fun<E> save(c: Class<E>, entity: E): E? = useConnection { connection ->
         val columns = columnsOf(c)
         val sb = StringBuilder("insert into ${tableOf(c)} (")
             .append(columns.joinToString(",") { it.name })
@@ -131,39 +126,39 @@ class EntityManager {
             .append(columns.joinToString(",") { "?" })
             .append(")")
         try {
-            connection!!.prepareStatement(sb.toString()).use { stmt ->
+            connection.prepareStatement(sb.toString()).use { stmt ->
                 columns.forEachIndexed { i, column -> stmt.setObject(i + 1, column.get(entity)) }
                 stmt.executeUpdate()
             }
-            return findLast(c)
+            return@useConnection findLast(c)
         } catch (e: SQLException) {
             throw RuntimeException("Error SQL", e)
         }
     }
 
-    fun<E> update(c: Class<E>, entity: E): E? {
+    fun<E> update(c: Class<E>, entity: E): E? = useConnection { connection ->
         val columns = columnsOf(c)
         val primaryKey = primaryKeyOf(c)
         val sb = StringBuilder("update ${tableOf(c)} set ")
             .append(columns.joinToString(",") { "${it.name} = ?" })
             .append(" where ${primaryKey!!.name} = ?")
         try {
-            connection!!.prepareStatement(sb.toString()).use { stmt ->
+            connection.prepareStatement(sb.toString()).use { stmt ->
                 columns.forEachIndexed { i, column -> stmt.setObject(i + 1, column.get(entity)) }
                 stmt.setObject(columns.size + 1, primaryKey.get(entity))
                 stmt.executeUpdate()
             }
-            return findOneById(c, primaryKey.get(entity) as Number)
+            return@useConnection findOneById(c, primaryKey.get(entity) as Number)
         } catch (e: SQLException) {
             throw RuntimeException("Error SQL", e)
         }
     }
 
-    fun<E> delete(c: Class<E>, entity: E) {
+    fun<E> delete(c: Class<E>, entity: E) = useConnection { connection ->
         val primaryKey = primaryKeyOf(c)
         val sql = "delete from ${tableOf(c)} where ${primaryKey!!.name} = ?"
         try {
-            connection!!.prepareStatement(sql).use { stmt ->
+            connection.prepareStatement(sql).use { stmt ->
                 stmt.setObject(1, primaryKey.get(entity))
                 stmt.executeUpdate()
             }

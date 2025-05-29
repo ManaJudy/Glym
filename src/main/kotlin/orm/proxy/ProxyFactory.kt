@@ -1,7 +1,9 @@
 package com.mana.glym.orm.proxy
 
-import java.lang.reflect.Modifier
 import java.io.File
+import java.lang.reflect.InvocationHandler
+import java.lang.reflect.Modifier
+import java.lang.reflect.Proxy
 import java.net.URLClassLoader
 import java.util.*
 import java.util.concurrent.Callable
@@ -9,7 +11,22 @@ import javax.tools.ToolProvider
 
 @Suppress("unchecked_cast")
 object ProxyFactory {
-    fun <C : Any> createLazyProxy(c: Class<C>, callable: Callable<Any>): C {
+
+    @Suppress("unused")
+    fun loadProxy(o: Object, proxyName: String) {
+        val proxy = ProxyCallableRegistry.get(proxyName)!!.call()
+        if (o.javaClass != proxy.javaClass) throw RuntimeException("Invalid proxy instance type")
+        for (field in o.javaClass.declaredFields) {
+            field.isAccessible = true
+            try {
+                field.set(o, field.get(proxy))
+            } catch (e: IllegalAccessException) {
+                throw RuntimeException("Failed to copy field ${field.name}", e)
+            }
+        }
+    }
+
+    fun <C : Any> createProxy(c: Class<C>, callable: Callable<Any>): C {
         val proxyName = "${c.simpleName}Proxy${UUID.randomUUID().toString().replace("-", "")}"
         ProxyCallableRegistry.register(proxyName, callable)
         val proxyPackage = "com.mana.winter.generated"
@@ -17,8 +34,12 @@ object ProxyFactory {
         val proxyLoaderMethod = """
             private void loadProxy() {
                 if (!isProxyLoaded) {
-                    ${ProxyCallableRegistry::class.java.name}.INSTANCE.get("$proxyName").call();
                     isProxyLoaded = true;
+                    try {
+                        ${ProxyFactory::class.java.name}.INSTANCE.loadProxy(this, "$proxyName");
+                    } catch (Exception e) {
+                        throw new RuntimeException("Failed to load proxy: " + e.getMessage(), e);
+                    }
                 }
             }
         """.trimIndent()
@@ -62,5 +83,35 @@ object ProxyFactory {
         val classLoader = URLClassLoader.newInstance(arrayOf(File("src-gen").toURI().toURL()))
         val clazz = classLoader.loadClass("$proxyPackage.$proxyName")
         return clazz.getDeclaredConstructor().newInstance() as C
+    }
+
+    fun <T> createProxyList(callable: Callable<List<T>>): List<T> {
+        val proxyId = "ListProxy${UUID.randomUUID().toString().replace("-", "")}"
+        ProxyCallableRegistry.register(proxyId, callable as Callable<Any>)
+        val listHolder = object {
+            @Volatile
+            var loadedList: List<T>? = null
+            var isLoaded = false
+        }
+        val handler = InvocationHandler { _, method, args ->
+            if (!listHolder.isLoaded) {
+                synchronized(listHolder) {
+                    if (!listHolder.isLoaded) {
+                        try {
+                            listHolder.loadedList = ProxyCallableRegistry.get(proxyId)!!.call() as List<T>
+                            listHolder.isLoaded = true
+                        } catch (e: Exception) {
+                            throw RuntimeException("Failed to load proxy list: ${e.message}", e)
+                        }
+                    }
+                }
+            }
+            method.invoke(listHolder.loadedList, *(args ?: emptyArray()))
+        }
+        return Proxy.newProxyInstance(
+            List::class.java.classLoader,
+            arrayOf(List::class.java),
+            handler
+        ) as List<T>
     }
 }
