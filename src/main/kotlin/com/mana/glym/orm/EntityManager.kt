@@ -3,7 +3,7 @@ package com.mana.glym.orm
 import com.mana.glym.annotation.Id
 import com.mana.glym.annotation.Relation
 import com.mana.glym.annotation.RelationType
-import com.mana.glym.annotation.Table
+import com.mana.glym.annotation.Entity
 import com.mana.glym.orm.proxy.ProxyFactory
 import java.lang.reflect.Field
 import java.sql.Connection
@@ -46,8 +46,8 @@ class EntityManager(val dataSource: DataSource) {
     }
 
     fun tableOf(c: Class<*>): String {
-        return if (c.isAnnotationPresent(Table::class.java))
-            c.getAnnotation(Table::class.java).name else c.simpleName
+        return if (c.isAnnotationPresent(Entity::class.java))
+            c.getAnnotation(Entity::class.java).name else c.simpleName
     }
 
     fun primaryKeyOf(c: Class<*>): Field? {

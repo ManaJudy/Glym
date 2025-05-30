@@ -15,8 +15,7 @@ object ProxyFactory {
     @Suppress("unused")
     fun loadProxy(o: Object, proxyName: String) {
         val proxy = ProxyCallableRegistry.get(proxyName)!!.call()
-        if (o.javaClass != proxy.javaClass) throw RuntimeException("Invalid proxy instance type")
-        for (field in o.javaClass.declaredFields) {
+        for (field in proxy.javaClass.declaredFields) {
             field.isAccessible = true
             try {
                 field.set(o, field.get(proxy))
@@ -29,7 +28,7 @@ object ProxyFactory {
     fun <C : Any> createProxy(c: Class<C>, callable: Callable<Any>): C {
         val proxyName = "${c.simpleName}Proxy${UUID.randomUUID().toString().replace("-", "")}"
         ProxyCallableRegistry.register(proxyName, callable)
-        val proxyPackage = "com.mana.winter.generated"
+        val proxyPackage = "com.mana.glym"
         val proxyField = "private boolean isProxyLoaded = false;"
         val proxyLoaderMethod = """
             private void loadProxy() {
@@ -75,12 +74,14 @@ object ProxyFactory {
                 $proxyMethods
             }
         """.trimIndent()
-        val file = File("src-gen/$proxyName.java")
+        val output = proxyPackage.replace('.', '/')
+        val file = File("target/classes/$output/$proxyName.java")
         file.writeText(proxyCode)
         val compiler = ToolProvider.getSystemJavaCompiler()
         val result = compiler.run(null, null, null, file.path)
         if (result != 0) throw RuntimeException("Error compiling proxy")
-        val classLoader = URLClassLoader.newInstance(arrayOf(File("src-gen").toURI().toURL()))
+        file.delete()
+        val classLoader = URLClassLoader.newInstance(arrayOf(File("target/classes/$output").toURI().toURL()))
         val clazz = classLoader.loadClass("$proxyPackage.$proxyName")
         return clazz.getDeclaredConstructor().newInstance() as C
     }
